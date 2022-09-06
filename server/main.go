@@ -3,10 +3,12 @@ package main
 import (
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 	"unix-server/model"
 	socket "unix-server/utils"
+
+	"net/http"
+	_ "net/http/pprof"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -14,7 +16,6 @@ import (
 
 const socketFile = "/tmp/prof_sock"
 
-var wg sync.WaitGroup //定义一个同步等待的组
 var globalDb *gorm.DB
 
 func main() {
@@ -42,14 +43,12 @@ func main() {
 		return "ok"
 	})
 
-	wg.Add(1)
 	go func() {
 		unixSocket.StartServer()
-		wg.Done()
 	}()
 
 	fmt.Println("-- unix socket server wait --")
-	wg.Wait()
+	http.ListenAndServe("0.0.0.0:6060", nil)
 	fmt.Println("-- unix socket server end --")
 }
 
