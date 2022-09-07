@@ -72,6 +72,70 @@ lrwx------ 1 root root 64 9月   2 18:03 122 -> socket:[4193313]
 
 
 ### pprof 分析
+`http://127.0.0.1:6060/debug/pprof/`  
+
+协程分析
+```shell
+goroutine profile: total 355731
+320510 @ 0x8be025 0x8cfd65 0x8cfd4e 0x8f1687 0x911d85 0x16b06b7 0x16b06b8 0x9f2f23 0x9f2e5f 0x8f5601
+#	0x8f1686	sync.runtime_SemacquireMutex+0x46					/usr/lib/golang/src/runtime/sema.go:71
+#	0x911d84	sync.(*Mutex).lockSlow+0x104						/usr/lib/golang/src/sync/mutex.go:138
+#	0x16b06b6	sync.(*Mutex).Lock+0xf6							/usr/lib/golang/src/sync/mutex.go:81
+#	0x16b06b7	audit/server/socket.ObtainProtoSockHandler.func1+0xf7			/data/jenkins-audit/audit/server/socket/socket_handler.go:83
+#	0x9f2f22	audit/server/utils/socket.(*UnixSocket).HandleServerContext+0x42	/data/jenkins-audit/audit/server/utils/socket/unix_socket.go:62
+#	0x9f2e5e	audit/server/utils/socket.(*UnixSocket).HandleServerConn+0x3e		/data/jenkins-audit/audit/server/utils/socket/unix_socket.go:52
+
+28793 @ 0x8be025 0x8cfd65 0x8cfd4e 0x8f1687 0x911d85 0x16b0c4e 0x16b0c4f 0x9f2f23 0x9f2e5f 0x8f5601
+#	0x8f1686	sync.runtime_SemacquireMutex+0x46					/usr/lib/golang/src/runtime/sema.go:71
+#	0x911d84	sync.(*Mutex).lockSlow+0x104						/usr/lib/golang/src/sync/mutex.go:138
+#	0x16b0c4d	sync.(*Mutex).Lock+0x4ad						/usr/lib/golang/src/sync/mutex.go:81
+#	0x16b0c4e	audit/server/socket.EventSockHandler.func1+0x4ae			/data/jenkins-audit/audit/server/socket/socket_handler.go:121
+#	0x9f2f22	audit/server/utils/socket.(*UnixSocket).HandleServerContext+0x42	/data/jenkins-audit/audit/server/utils/socket/unix_socket.go:62
+#	0x9f2e5e	audit/server/utils/socket.(*UnixSocket).HandleServerConn+0x3e		/data/jenkins-audit/audit/server/utils/socket/unix_socket.go:52
+
+6387 @ 0x8be025 0x8cf297 0xe7b635 0x8f5601
+#	0xe7b634	database/sql.(*DB).connectionOpener+0xb4	/usr/lib/golang/src/database/sql/sql.go:1133
+```
+
+数据处理不过来，阻塞在`auditMutex.Lock()`,`behaviorMutex.Lock()`,`connectionOpener select`  
+
+`/usr/lib/golang/src/database/sql/sql.go`
+```
+func OpenDB(c driver.Connector) *DB {
+	ctx, cancel := context.WithCancel(context.Background())
+	db := &DB{
+		connector:    c,
+		openerCh:     make(chan struct{}, connectionRequestQueueSize),
+		lastPut:      make(map[*driverConn]string),
+		connRequests: make(map[uint64]chan connRequest),
+		stop:         cancel,
+	}
+
+	go db.connectionOpener(ctx)  // 调用connectionOpener
+
+	return db
+}
+
+// Runs in a separate goroutine, opens new connections when requested.
+func (db *DB) connectionOpener(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-db.openerCh:
+			db.openNewConnection(ctx)
+		}
+	}
+}
+```
+
+```shell
+goroutine 21 [select, 154 minutes]:
+database/sql.(*DB).connectionOpener(0xc000270680, 0x1bf5f98, 0xc000235000)
+	/usr/lib/golang/src/database/sql/sql.go:1133 +0xb5
+created by database/sql.OpenDB
+	/usr/lib/golang/src/database/sql/sql.go:740 +0x12a
+```
 
 pprof heap分析
 ```shell
