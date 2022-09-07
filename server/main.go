@@ -2,30 +2,38 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
 	"unix-server/model"
-	"unix-server/utils"
+	myutils "unix-server/utils"
 
 	"net/http"
 	_ "net/http/pprof"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 const socketFile = "/tmp/prof_sock"
 const LookGid = true
 
 var globalDb *gorm.DB
-var msgQueue chan model.Employees
+var msgQueue chan string
+
+var lastSecondTime int64
+var currHandlerCount int64
+var lastHandlerCount int64
 
 func main() {
 	pid := os.Getpid()
 	fmt.Println("-- unix socket server pid=", pid, " --")
 
 	// 设置/配置
+	lastSecondTime = time.Now().Unix()
+	msgQueue = make(chan string, 100)
 	fmt.Println(len(msgQueue))
 
 	// 连接mysql
@@ -36,25 +44,39 @@ func main() {
 		DSN: dsn,
 	})
 
-	db, err := gorm.Open(dialector, &gorm.Config{})
+	newLogger := logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		logger.Config{
+			SlowThreshold:             time.Second, // Slow SQL threshold
+			LogLevel:                  logger.Info, // Log level
+			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
+			Colorful:                  true,        // Disable color
+		},
+	)
+
+	db, err := gorm.Open(dialector, &gorm.Config{
+		Logger:      newLogger,
+		PrepareStmt: true, //
+	})
 	if err != nil {
 		fmt.Println("connect mysql error!")
 		return
 	}
-	globalDb = db
+	//globalDb = db
+	globalDb = db.Session(&gorm.Session{PrepareStmt: true})
 	fmt.Println(globalDb.Name())
 
 	unixSocket := myutils.NewUnixSocket(socketFile, 1024)
 	unixSocket.SetContextHandler(func(contexts string) string {
-		paeseDataAndStore(contexts)
+		// 多协程 入队
+		msgQueue <- contexts
 		return "ok"
 	})
 
-	go func() {
-		unixSocket.StartServer()
-	}()
+	go unixSocket.StartServer()
+	go handleDataLoop()
 
-	fmt.Println("-- unix socket server wait --")
+	fmt.Println("-- ListenAndServe --")
 	err = http.ListenAndServe("0.0.0.0:6060", nil)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -63,8 +85,25 @@ func main() {
 	fmt.Println("-- unix socket server end --")
 }
 
+func handleDataLoop() {
+	for {
+		select {
+		case data := <-msgQueue:
+			paeseDataAndStore(data)
+		}
+	}
+}
+
 func paeseDataAndStore(context string) { // 多协程回调,每个回调都是一个协程 go this.HandleServerConn(c, string(data[0:nr]))
-	fmt.Println("recvData:", context)
+	//fmt.Println("recvData:", context)
+	now := time.Now().Unix()
+	if now-lastSecondTime >= 1 {
+		fmt.Println("paeseDataAndStore handler data", currHandlerCount-lastHandlerCount, "pps")
+		lastSecondTime = now
+		lastHandlerCount = currHandlerCount
+	}
+
+	currHandlerCount++
 
 	fields := strings.Split(context, ",")
 	birthDate, _ := time.ParseInLocation("2006-01-02", fields[0], time.Local)
@@ -75,9 +114,8 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 		BirthDate: birthDate,
 		FirstName: fields[1],
 		LastName:  fields[2],
-		//Gender:    []rune(fields[3])[0],
-		Gender:   fields[3],
-		HireDate: hireDate,
+		Gender:    fields[3],
+		HireDate:  hireDate,
 	}
 
 	err := globalDb.Table("employees").Create(&employee).Error

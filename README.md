@@ -2,6 +2,15 @@
 
 [测试数据](https://github.com/ymm135/test_db) 
 
+- [基本信息](#基本信息)
+  - [pprof 分析](#pprof-分析)
+  - [mysql 不同连接方式性能表现](#mysql-不同连接方式性能表现)
+  - [性能表现](#性能表现)
+  - [`sysbench`性能监测](#sysbench性能监测)
+    - [准备数据](#准备数据)
+    - [执行测试](#执行测试)
+    - [清理数据](#清理数据)
+    - [测试结果](#测试结果)
 ## 基本信息
 
 高并发存储时，mysql的资源占用  
@@ -21,7 +30,7 @@ KiB Swap: 19914748 total, 19369212 free,   545536 used. 14595852 avail Mem
     2 root      20   0       0      0      0 S   0.0  0.0   0:00.01 kthreadd     
 ```
 
-长时间存储时`fd`耗尽
+长时间存储时`fd`浏览  
 ```shell
 $ ls -l /proc/21668/fd
 总用量 0
@@ -55,20 +64,6 @@ lrwx------ 1 root root 64 9月   2 18:03 121 -> socket:[4187288]
 lrwx------ 1 root root 64 9月   2 18:03 122 -> socket:[4193313]
 ```
 
-加锁失败:  
-```shell
-2022/09/02 18:06:28 /data/jenkins-audit/audit/server/service/flowAudit/flow_audit.go:65 Error 1205: Lock wait timeout exceeded; try restarting transaction
-[50813.294ms] [rows:0] update icdevicetraffics set ic_device_ip = 'NULL' where ic_device_mac = '64:ae:0c:34:ab:98'
-
-2022/09/02 18:06:28 /data/jenkins-audit/audit/server/service/flowAudit/flow_audit.go:65 Error 1205: Lock wait timeout exceeded; try restarting transaction
-[50810.334ms] [rows:0] update icdevicetraffics set ic_device_ip = 'NULL' where ic_device_mac = '00:c0:a8:f2:61:fb'
-
-2022/09/02 18:06:28 /data/jenkins-audit/audit/server/service/flowAudit/flow_audit.go:65 Error 1205: Lock wait timeout exceeded; try restarting transaction
-[50809.743ms] [rows:0] update icdevicetraffics set ic_device_ip = 'NULL' where ic_device_mac = '00:0c:29:6b:2a:28'
-
-2022/09/02 18:06:28 /data/jenkins-audit/audit/server/service/flowAudit/flow_audit.go:65 Error 1205: Lock wait timeout exceeded; try restarting transaction
-[50808.233ms] [rows:0] update icdevicetraffics set ic_device_ip = '192.168.1.30' where ic_device_mac = '00:e0:ab:01:10:18'
-```
 
 
 ### pprof 分析
@@ -173,7 +168,417 @@ Showing nodes accounting for 8229.34MB, 100% of 8229.34MB total
 ```
 
 
-### mysql socket连接/长连接
+### mysql 不同连接方式性能表现  
+
+[mysql8 不同连接方式性能表现](https://blog.herecura.eu/blog/2021-03-03-mysql-local-vs-remote/)  
+
+| type | transactions/sec | queries/sec | 95% latency(ms)| percentage |  
+| ---- | ---- | ---- | ---- |  ---- | 
+| local socket | 1159.13 | 33614.79 | 2.18 | 100% |  
+| local tcp | 900.29 | 26108.54 | 2.81 | 77.7% |  
+| remote tcp | 326.32 | 9463.20 | 7.84 | 28.2% |  
+| remote socket | 259.16 | 7515.59 | 9.73 | 22.4% |  
+
+### 性能表现
+如果远程连接，mysql每秒处理10条数据，本地连接，处理20条
+
+```
+# remote 
+paeseDataAndStore handler data 6 pps
+paeseDataAndStore handler data 8 pps
+paeseDataAndStore handler data 10 pps
+
+# local
+paeseDataAndStore handler data 20 pps
+paeseDataAndStore handler data 26 pps
+paeseDataAndStore handler data 24 pps
+paeseDataAndStore handler data 21 pps
+```
+
+### `sysbench`性能监测
+
+sysbench是跨平台的基准测试工具，支持多线程，支持多种数据库；主要包括以下几种测试：
+
+- cpu性能
+- 磁盘io性能
+- 调度程序性能
+- 内存分配及传输速度
+- POSIX线程性能
+- 数据库性能(OLTP基准测试)  
+
+
+本文主要介绍对数据库性能的测试。  
+
+安装
+```shell
+# centos
+curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.rpm.sh | sudo bash
+sudo yum -y install sysbench
+
+# ubuntu 
+curl -s https://packagecloud.io/install/repositories/akopytov/sysbench/script.deb.sh | sudo bash
+sudo apt -y install sysbench
+
+# macos
+brew install sysbench
+```
+
+使用说明
+```shell
+Usage:
+  sysbench [options]... [testname] [command]
+
+Commands implemented by most tests: prepare run cleanup help
+
+General options:
+  --threads=N                     number of threads to use [1]
+  --events=N                      limit for total number of events [0]
+  --time=N                        limit for total execution time in seconds [10]
+  --forced-shutdown=STRING        number of seconds to wait after the --time limit before forcing shutdown, or 'off' to disable [off]
+  --thread-stack-size=SIZE        size of stack per thread [64K]
+  --rate=N                        average transactions rate. 0 for unlimited rate [0]
+  --report-interval=N             periodically report intermediate statistics with a specified interval in seconds. 0 disables intermediate reports [0]
+  --report-checkpoints=[LIST,...] dump full statistics and reset all counters at specified points in time. The argument is a list of comma-separated values representing the amount of time in seconds elapsed from start of test when report checkpoint(s) must be performed. Report checkpoints are off by default. []
+  --debug[=on|off]                print more debugging info [off]
+  --validate[=on|off]             perform validation checks where possible [off]
+  --help[=on|off]                 print help and exit [off]
+  --version[=on|off]              print version and exit [off]
+  --config-file=FILENAME          File containing command line options
+  --tx-rate=N                     deprecated alias for --rate [0]
+  --max-requests=N                deprecated alias for --events [0]
+  --max-time=N                    deprecated alias for --time [0]
+  --num-threads=N                 deprecated alias for --threads [1]
+```
+
+mysql参数
+```shell
+mysql options:
+  --mysql-host=[LIST,...]          MySQL server host [localhost]
+  --mysql-port=[LIST,...]          MySQL server port [3306]
+  --mysql-socket=[LIST,...]        MySQL socket
+  --mysql-user=STRING              MySQL user [sbtest]
+  --mysql-password=STRING          MySQL password []
+  --mysql-db=STRING                MySQL database name [sbtest]
+  --mysql-ssl[=on|off]             use SSL connections, if available in the client library [off]
+  --mysql-ssl-cipher=STRING        use specific cipher for SSL connections []
+  --mysql-compression[=on|off]     use compression, if available in the client library [off]
+  --mysql-debug[=on|off]           trace all client library calls [off]
+  --mysql-ignore-errors=[LIST,...] list of errors to ignore, or "all" [1213,1020,1205]
+  --mysql-dry-run[=on|off]         Dry run, pretend that all MySQL client API calls are successful without executing them [off]
+```
+
+lua脚本位置
+```shell
+▶ ls -l /usr/local/Cellar/sysbench/1.0.20_2/share/sysbench/tests/include/oltp_legacy 
+total 104
+-rw-r--r--  1 ymm  admin  1195  4 24  2020 bulk_insert.lua
+-rw-r--r--  1 ymm  admin  4696  4 24  2020 common.lua
+-rw-r--r--  1 ymm  admin   366  4 24  2020 delete.lua
+-rw-r--r--  1 ymm  admin  1171  4 24  2020 insert.lua
+-rw-r--r--  1 ymm  admin  3004  4 24  2020 oltp.lua
+-rw-r--r--  1 ymm  admin   368  4 24  2020 oltp_simple.lua
+-rw-r--r--  1 ymm  admin   527  4 24  2020 parallel_prepare.lua
+-rw-r--r--  1 ymm  admin   369  4 24  2020 select.lua
+-rw-r--r--  1 ymm  admin  1448  4 24  2020 select_random_points.lua
+-rw-r--r--  1 ymm  admin  1556  4 24  2020 select_random_ranges.lua
+-rw-r--r--  1 ymm  admin   369  4 24  2020 update_index.lua
+-rw-r--r--  1 ymm  admin   578  4 24  2020 update_non_index.lua
+```
+
+注意事项
+在执行sysbench时，应该注意：  
+1. 尽量不要在MySQL服务器运行的机器上进行测试，一方面可能无法体现网络（哪怕是局域网）的影响，另一方面，sysbench的运行（尤其是设置的并发数较高时）会影响MySQL服务器的表现。
+2. 可以逐步增加客户端的并发连接数（--thread参数），观察在连接数不同情况下，MySQL服务器的表现；如分别设置为10,20,50,100等。
+3. 一般执行模式选择complex即可，如果需要特别测试服务器只读性能，或不使用事务时的性能，可以选择simple模式或nontrx模式。
+4. 如果连续进行多次测试，注意确保之前测试的数据已经被清理干净。  
+
+#### 准备数据
+
+创建数据库
+```shell
+CREATE DATABASE IF NOT EXISTS sbtest DEFAULT CHARSET utf8 COLLATE utf8_general_ci;
+```
+
+```shell
+# 远程测试
+HOST=10.25.10.125
+LUA_FILE=/usr/local/Cellar/sysbench/1.0.20_2/share/sysbench/tests/include/oltp_legacy/oltp.lua
+
+# 本地测试
+HOST=localhost
+LUA_FILE=/usr/share/sysbench/tests/include/oltp_legacy/oltp.lua
+
+sysbench $LUA_FILE \
+ --mysql-host=$HOST \
+ --mysql-port=3306 \
+ --mysql-user=root --mysql-password=root \
+ --oltp-test-mode=complex --oltp-tables-count=10 \
+ --oltp-table-size=100000 --threads=10 --time=120 \
+ --report-interval=10 \
+ prepare
+```
+
+> 执行模式为complex，使用了10个表，每个表有10万条数据，客户端的并发线程数为10，执行时间为120秒，每10秒生成一次报告  
+
+输出日志， 创建10张还有10万数据的表  
+```shell
+Creating table 'sbtest1'...
+Inserting 100000 records into 'sbtest1'
+Creating secondary indexes on 'sbtest1'...
+Creating table 'sbtest2'...
+Inserting 100000 records into 'sbtest2'
+Creating secondary indexes on 'sbtest2'...
+Creating table 'sbtest3'...
+Inserting 100000 records into 'sbtest3'
+Creating secondary indexes on 'sbtest3'...
+Creating table 'sbtest4'...
+Inserting 100000 records into 'sbtest4'
+Creating secondary indexes on 'sbtest4'...
+Creating table 'sbtest5'...
+Inserting 100000 records into 'sbtest5'
+Creating secondary indexes on 'sbtest5'...
+Creating table 'sbtest6'...
+Inserting 100000 records into 'sbtest6'
+Creating secondary indexes on 'sbtest6'...
+Creating table 'sbtest7'...
+Inserting 100000 records into 'sbtest7'
+Creating secondary indexes on 'sbtest7'...
+Creating table 'sbtest8'...
+Inserting 100000 records into 'sbtest8'
+Creating secondary indexes on 'sbtest8'...
+Creating table 'sbtest9'...
+Inserting 100000 records into 'sbtest9'
+Creating secondary indexes on 'sbtest9'...
+Creating table 'sbtest10'...
+Inserting 100000 records into 'sbtest10'
+Creating secondary indexes on 'sbtest10'..
+```
+
+表结构
+```shell
+mysql> select * from sbtest1 limit 1;
++----+-------+-------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+| id | k     | c                                                                                                                       | pad                                                         |
++----+-------+-------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+|  1 | 49929 | 83868641912-28773972837-60736120486-75162659906-27563526494-20381887404-41576422241-93426793964-56405065102-33518432330 | 67847967377-48000963322-62604785301-91415491898-96926520291 |
++----+-------+-------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------------------+
+1 row in set (0.00 sec)
+```
+
+查看lua脚本，数据库操作包含增删改查   
+```shell
+for i=1, oltp_point_selects do
+      rs = db_query("SELECT c FROM ".. table_name .." WHERE id=" ..
+                       sb_rand(1, oltp_table_size))
+   end
+
+   if oltp_range_selects then
+
+   for i=1, oltp_simple_ranges do
+      rs = db_query("SELECT c FROM ".. table_name .. get_range_str())
+   end
+
+   for i=1, oltp_sum_ranges do
+      rs = db_query("SELECT SUM(K) FROM ".. table_name .. get_range_str())
+   end
+
+   for i=1, oltp_order_ranges do
+      rs = db_query("SELECT c FROM ".. table_name .. get_range_str() ..
+                    " ORDER BY c")
+   end
+
+   for i=1, oltp_distinct_ranges do
+      rs = db_query("SELECT DISTINCT c FROM ".. table_name .. get_range_str() ..
+                    " ORDER BY c")
+   end
+
+   for i=1, oltp_index_updates do
+      rs = db_query("UPDATE " .. table_name .. " SET k=k+1 WHERE id=" .. sb_rand(1, oltp_table_size))
+   end
+
+   for i=1, oltp_non_index_updates do
+      c_val = sb_rand_str("###########-###########-###########-###########-###########-###########-###########-###########-###########-###########")
+      query = "UPDATE " .. table_name .. " SET c='" .. c_val .. "' WHERE id=" .. sb_rand(1, oltp_table_size)
+      rs = db_query(query)
+      if rs then
+        print(query)
+      end
+   end
+
+   for i=1, oltp_delete_inserts do
+
+   i = sb_rand(1, oltp_table_size)
+
+   rs = db_query("DELETE FROM " .. table_name .. " WHERE id=" .. i)
+   
+   c_val = sb_rand_str([[
+###########-###########-###########-###########-###########-###########-###########-###########-###########-###########]])
+   pad_val = sb_rand_str([[
+###########-###########-###########-###########-###########]])
+
+   rs = db_query("INSERT INTO " .. table_name ..  " (id, k, c, pad) VALUES " .. string.format("(%d, %d, '%s', '%s')",i, sb_rand(1, oltp_table_size) , c_val, pad_val))
+
+   end
+```
+
+
+> 提示文件找不到 FATAL: error 2002: Can't connect to local MySQL server through socket '/var/lib/mysql/mysql.sock' (2)  
+> 本地文件在`/tmp/mysql.sock`  
+
+```shell
+mkdir -p /var/lib/mysql/
+
+# 注意用户权限
+chown -R mysql:mysql /var/lib/mysql/
+
+# /etc/my.cnf
+[mysqld]
+socket=/var/lib/mysql/mysql.sock
+```
+
+
+
+#### 执行测试
+将测试结果导出到文件中，便于后续分析。  
+
+```shell
+sysbench $LUA_FILE \
+ --mysql-host=$HOST \
+ --mysql-port=3306 \
+ --mysql-user=root --mysql-password=root \
+ --oltp-test-mode=complex --oltp-tables-count=10 \
+ --oltp-table-size=100000 --threads=10 --time=120 \
+ --report-interval=10 \
+ run >> mysysbench.log
+```
+
+
+#### 清理数据
+```shell
+sysbench $LUA_FILE \
+ --mysql-host=$HOST \
+ --mysql-port=3306 \
+ --mysql-user=root --mysql-password=root \
+  --oltp-test-mode=complex --oltp-tables-count=10 \
+ --oltp-table-size=100000 --threads=10 --time=120 \
+ --report-interval=10 \
+ cleanup
+```
+
+
+#### 测试结果
+远程连接测试
+```shell
+SQL statistics:
+    queries performed:
+        read:                            36372
+        write:                           10392
+        other:                           5196
+        total:                           51960
+    transactions:                        2598   (21.56 per sec.)
+    queries:                             51960  (431.13 per sec.)
+    ignored errors:                      0      (0.00 per sec.)
+    reconnects:                          0      (0.00 per sec.)
+
+General statistics:
+    total time:                          120.5195s
+    total number of events:              2598
+
+Latency (ms):
+         min:                                  181.88
+         avg:                                  463.26
+         max:                                 1084.22
+         95th percentile:                      719.92
+         sum:                              1203547.73
+
+Threads fairness:
+    events (avg/stddev):           259.8000/2.60
+    execution time (avg/stddev):   120.3548/0.09
+```
+
+mysql本地连接测试
+```shell
+SQL statistics:
+    queries performed:
+        read:                            125552
+        write:                           35872
+        other:                           17936
+        total:                           179360
+    transactions:                        8968   (74.54 per sec.)
+    queries:                             179360 (1490.70 per sec.)
+    ignored errors:                      0      (0.00 per sec.)
+    reconnects:                          0      (0.00 per sec.)
+
+General statistics:
+    total time:                          120.3180s
+    total number of events:              8968
+
+Latency (ms):
+         min:                                   36.81
+         avg:                                  133.91
+         max:                                  788.42
+         95th percentile:                      376.49
+         sum:                              1200926.35
+
+Threads fairness:
+    events (avg/stddev):           896.8000/5.44
+    execution time (avg/stddev):   120.0926/0.08
+```
+
+### sql耗时分析
+```shell
+mysql> show variables like 'profiling';
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| profiling     | OFF   |
++---------------+-------+
+1 row in set (0.00 sec)
+
+mysql> set GLOBAL profiling = on;
+mysql> set profiling = on;
+Query OK, 0 rows affected, 1 warning (0.00 sec)
+
+mysql> show variables like 'profiling';
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| profiling     | ON    |
++---------------+-------+
+1 row in set (0.00 sec)
+
+mysql> show profiles;
++----------+------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| Query_ID | Duration   | Query                                                                                                                                                        |
++----------+------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|        1 | 0.00281875 | show variables like 'profiling'                                                                                                                              |
+|        2 | 0.03362250 | INSERT INTO `employees` (`birth_date`,`first_name`,`last_name`,`gender`,`hire_date`) VALUES ('1953-09-02 00:00:00','G12','Tester','M','1986-06-26 00:00:00') |
++----------+------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------+
+2 rows in set, 1 warning (0.00 sec)
+
+mysql> show profile cpu, block io for query 2;
++----------------------+----------+----------+------------+--------------+---------------+
+| Status               | Duration | CPU_user | CPU_system | Block_ops_in | Block_ops_out |
++----------------------+----------+----------+------------+--------------+---------------+
+| starting             | 0.000116 | 0.000051 |   0.000061 |            0 |             0 |
+| checking permissions | 0.000014 | 0.000005 |   0.000007 |            0 |             0 |
+| Opening tables       | 0.000029 | 0.000014 |   0.000016 |            0 |             0 |
+| init                 | 0.000031 | 0.000013 |   0.000017 |            0 |             0 |
+| System lock          | 0.000013 | 0.000006 |   0.000007 |            0 |             0 |
+| update               | 0.000089 | 0.000041 |   0.000049 |            0 |             0 |
+| end                  | 0.000010 | 0.000003 |   0.000005 |            0 |             0 |
+| query end            | 0.033245 | 0.000106 |   0.000127 |            0 |             8 |
+| closing tables       | 0.000025 | 0.000010 |   0.000012 |            0 |             0 |
+| freeing items        | 0.000030 | 0.000013 |   0.000017 |            0 |             0 |
+| cleaning up          | 0.000022 | 0.000010 |   0.000012 |            0 |             0 |
++----------------------+----------+----------+------------+--------------+---------------+
+11 rows in set, 1 warning (0.00 sec)
+```
+
+
+
+
+
 
 
 
