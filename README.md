@@ -583,7 +583,14 @@ mysql> show profile cpu, block io for query 2;
 2000条数据耗时`97`S
 
 批量处理模式:
-2000条数据耗时``S
+10000条数据耗时`1`S  
+
+如果批量插入超过1w提示`prepared statement contains too many placeholders gorm`   
+
+这种情况是只有一个任务执行，如果有多个任务对同一个表格执行呢？  
+测试情况为10个协程同时往一张表中插入1w数据?  
+
+
 
 
 

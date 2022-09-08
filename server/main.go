@@ -18,7 +18,6 @@ import (
 )
 
 const socketFile = "/tmp/prof_sock"
-const LookGid = true
 
 var globalDb *gorm.DB
 var msgQueue chan string
@@ -27,6 +26,8 @@ var lastSecondTime int64
 var currHandlerCount int64
 var lastHandlerCount int64
 
+var saveDataQueue []model.Employees
+
 func main() {
 	pid := os.Getpid()
 	fmt.Println("-- unix socket server pid=", pid, " --")
@@ -34,6 +35,7 @@ func main() {
 	// 设置/配置
 	lastSecondTime = time.Now().Unix()
 	msgQueue = make(chan string, 10000)
+	saveDataQueue = make([]model.Employees, 0)
 	fmt.Println(len(msgQueue))
 
 	// 连接mysql
@@ -66,7 +68,7 @@ func main() {
 	globalDb = db.Session(&gorm.Session{PrepareStmt: true})
 	fmt.Println(globalDb.Name())
 
-	unixSocket := myutils.NewUnixSocket(socketFile, 1024)
+	unixSocket := myutils.NewUnixSocket(socketFile, 1024*1024)
 	unixSocket.SetContextHandler(func(contexts string) string {
 		// 多协程 入队
 		msgQueue <- contexts
@@ -106,20 +108,34 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 	currHandlerCount++
 
 	fields := strings.Split(context, ",")
-	birthDate, _ := time.ParseInLocation("2006-01-02", fields[0], time.Local)
+	//birthDate, _ := time.ParseInLocation("2006-01-02", fields[0], time.Local)
 	hireDate, _ := time.ParseInLocation("2006-01-02", fields[4], time.Local)
 
 	employee := model.Employees{
 		Id:        0,
-		BirthDate: birthDate,
+		BirthDate: time.Now(),
 		FirstName: fields[1],
 		LastName:  fields[2],
 		Gender:    fields[3],
 		HireDate:  hireDate,
 	}
 
-	err := globalDb.Table("employees").Create(&employee).Error
-	if err != nil {
-		fmt.Println(err.Error())
+	saveDataQueue = append(saveDataQueue, employee)
+
+	// 单个处理
+	//err := globalDb.Table("employees").Create(&employee).Debug().Error
+	//if err != nil {
+	//	fmt.Println(err.Error())
+	//}
+
+	if len(saveDataQueue) >= 10000 {
+		currTime := time.Now().Unix()
+		fmt.Println("save data", len(saveDataQueue))
+		err := globalDb.Table("employees").Create(&saveDataQueue).Error
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		saveDataQueue = saveDataQueue[:0]
+		fmt.Println("save data end 耗时:", time.Now().Unix()-currTime, "s")
 	}
 }
