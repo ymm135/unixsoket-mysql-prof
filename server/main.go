@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -133,10 +134,10 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 	routineNum := 20
 	if len(saveDataQueue) >= 10000 {
 		wg.Add(routineNum)
-		count := 0
+		count := 1
 		startInsertTime := time.Now()
 
-		for count < routineNum {
+		for count <= routineNum {
 			go batchInsertData(count)
 			count++
 		}
@@ -155,7 +156,7 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 func batchInsertData(index int) {
 	currTime := time.Now().Unix()
 	fmt.Println(index, "save data", len(saveDataQueue))
-	err := globalDb.Table("employees").Create(&saveDataQueue).Error
+	err := globalDb.Table("employees" + strconv.Itoa(index)).Create(&saveDataQueue).Error
 	if err != nil {
 		fmt.Println(err.Error())
 	}

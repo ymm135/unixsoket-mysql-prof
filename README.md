@@ -588,8 +588,11 @@ mysql> show profile cpu, block io for query 2;
 如果批量插入超过1w提示`prepared statement contains too many placeholders gorm`   
 
 这种情况是只有一个任务执行，如果有多个任务对同一个表格执行呢？  
+
+
 测试情况为20个协程同时往一张表中插入1w数据?  
 
+总耗时`3s`, 平均`0.15` s
 ```shell
 6 save data end 耗时: 1 s
 2 save data end 耗时: 2 s
@@ -615,6 +618,33 @@ batch insert data,cost  3 s,avg 0.15 s
 ```
 
 测试情况为20个协程同时往不同张表中插入1w数据?  
+
+总耗时`14s`, 平均`0.7` s
+```shell
+16 save data end 耗时: 2 s
+12 save data end 耗时: 3 s
+6 save data end 耗时: 4 s
+3 save data end 耗时: 5 s
+15 save data end 耗时: 6 s
+10 save data end 耗时: 6 s
+20 save data end 耗时: 6 s
+11 save data end 耗时: 7 s
+9 save data end 耗时: 8 s
+14 save data end 耗时: 8 s
+13 save data end 耗时: 9 s
+2 save data end 耗时: 9 s
+4 save data end 耗时: 11 s
+5 save data end 耗时: 11 s
+8 save data end 耗时: 11 s
+18 save data end 耗时: 12 s
+7 save data end 耗时: 13 s
+1 save data end 耗时: 13 s
+19 save data end 耗时: 14 s
+17 save data end 耗时: 14 s
+batch insert data,cost  14 s,avg 0.7 s
+```
+
+> 从这样看来，跨表插入是有很大性能消耗的，如果测试真实场景，需要有背景CRUD的操作，作为基础操作。  
 
 
 
