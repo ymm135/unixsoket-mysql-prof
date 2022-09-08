@@ -647,6 +647,8 @@ batch insert data,cost  14 s,avg 0.7 s
 > 从这样看来，跨表插入是有很大性能消耗的，如果测试真实场景，需要有背景CRUD的操作，作为基础操作。  
 
 
+## [mysql单表性能](md/mysql-single-pprof.md)  
+## [mysql并发性能](md/mysql-concurrency-pprof.md)  
 
 
 
