@@ -33,7 +33,7 @@ func main() {
 
 	// 设置/配置
 	lastSecondTime = time.Now().Unix()
-	msgQueue = make(chan string, 100)
+	msgQueue = make(chan string, 10000)
 	fmt.Println(len(msgQueue))
 
 	// 连接mysql
@@ -47,10 +47,10 @@ func main() {
 	newLogger := logger.New(
 		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
 		logger.Config{
-			SlowThreshold:             time.Second, // Slow SQL threshold
-			LogLevel:                  logger.Info, // Log level
-			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
-			Colorful:                  true,        // Disable color
+			SlowThreshold:             time.Second,   // Slow SQL threshold
+			LogLevel:                  logger.Silent, // Log level
+			IgnoreRecordNotFoundError: true,          // Ignore ErrRecordNotFound error for logger
+			Colorful:                  true,          // Disable color
 		},
 	)
 
@@ -98,7 +98,7 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 	//fmt.Println("recvData:", context)
 	now := time.Now().Unix()
 	if now-lastSecondTime >= 1 {
-		fmt.Println("paeseDataAndStore handler data", currHandlerCount-lastHandlerCount, "pps")
+		fmt.Println("paeseDataAndStore handler data", currHandlerCount-lastHandlerCount, "pps", time.Now().String())
 		lastSecondTime = now
 		lastHandlerCount = currHandlerCount
 	}

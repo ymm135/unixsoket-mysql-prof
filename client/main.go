@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("--unix socket client --")
 	unixSocket := myutils.NewUnixSocket(socketFile, 1024)
 	count := 0
-	max := 100
+	max := 2000
 	wg.Add(max)
 
 	for count < max {
