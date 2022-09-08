@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unix-server/model"
 	myutils "unix-server/utils"
@@ -27,6 +28,8 @@ var currHandlerCount int64
 var lastHandlerCount int64
 
 var saveDataQueue []model.Employees
+
+var wg sync.WaitGroup
 
 func main() {
 	pid := os.Getpid()
@@ -127,15 +130,36 @@ func paeseDataAndStore(context string) { // 多协程回调,每个回调都是�
 	//if err != nil {
 	//	fmt.Println(err.Error())
 	//}
-
+	routineNum := 20
 	if len(saveDataQueue) >= 10000 {
-		currTime := time.Now().Unix()
-		fmt.Println("save data", len(saveDataQueue))
-		err := globalDb.Table("employees").Create(&saveDataQueue).Error
-		if err != nil {
-			fmt.Println(err.Error())
+		wg.Add(routineNum)
+		count := 0
+		startInsertTime := time.Now()
+
+		for count < routineNum {
+			go batchInsertData(count)
+			count++
 		}
+		// 等所有数据写入完成
+		wg.Wait()
+
+		gap := time.Now().Unix() - startInsertTime.Unix()
+		fmt.Println("batch insert data,cost ", gap, "s,avg", (float64)(gap)/(float64)(routineNum), "s")
+		// 清空数据
 		saveDataQueue = saveDataQueue[:0]
-		fmt.Println("save data end 耗时:", time.Now().Unix()-currTime, "s")
+
 	}
+
+}
+
+func batchInsertData(index int) {
+	currTime := time.Now().Unix()
+	fmt.Println(index, "save data", len(saveDataQueue))
+	err := globalDb.Table("employees").Create(&saveDataQueue).Error
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	fmt.Println(index, "save data end 耗时:", time.Now().Unix()-currTime, "s")
+
+	wg.Done()
 }
