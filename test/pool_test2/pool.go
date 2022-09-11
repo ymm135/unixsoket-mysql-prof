@@ -12,11 +12,11 @@ var wg sync.WaitGroup
 
 func main() {
 	fmt.Println("main gid", myutils.GetGID())
-	pool := tunny.NewFunc(2, func(in interface{}) interface{} {
+	pool := tunny.NewFunc(10, func(in interface{}) interface{} {
 		fmt.Println("gid", myutils.GetGID())
 		intVal := in.(int)
 		time.Sleep(time.Millisecond * 1000)
-		wg.Done()
+		//wg.Done()
 		return intVal * 2
 	})
 	defer pool.Close()
@@ -25,9 +25,11 @@ func main() {
 	num := 100
 	wg.Add(num)
 	for count < num {
-		pool.Process(10)
-		//go pool.Process(10)
-		//fmt.Println(ret)
+		timed, err := pool.ProcessTimed(10, time.Duration(1))
+		if err != nil {
+			fmt.Println(err.Error(), timed)
+			wg.Done()
+		}
 		count++
 	}
 
