@@ -312,6 +312,7 @@ LUA_FILE=/usr/share/sysbench/tests/include/oltp_legacy/oltp.lua
 sysbench $LUA_FILE \
  --mysql-host=$HOST \
  --mysql-port=3306 \
+ --mysql-socket=/var/lib/mysql/mysql.sock \
  --mysql-user=root --mysql-password=root \
  --oltp-test-mode=complex --oltp-tables-count=10 \
  --oltp-table-size=100000 --threads=10 --time=120 \
